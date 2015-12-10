@@ -2,17 +2,20 @@
 - name: create machine
   hosts: localhost
   gather_facts: no
-  tags: create
+  tags: [consul, registrator, swarm]
 
 
   vars:
     domain_name: 'service.consul'
     registrator_tag: 'v4'
+    swarm_port: '2375'
     docker_port: '2376'
     consul_port: '8500'
     datacenter_name: 'dc1'
     docker_driver: virtualbox
-    external_dns_first:
+    external_dns_first: '8.8.8.8'
+    external_dns_second: '8.8.4.4'
+
   tasks:
 #  - docker_machine: name="{{ item }}" state=present driver=virtualbox
 #    with_items:
@@ -27,12 +30,13 @@
 #    when: env == "prod"
 
 
-  - shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ docker_driver }} --engine-opt dns=127.0.0.1 --engine-opt dns=8.8.8.8 --engine-opt dns=8.8.4.4"
+  - shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ docker_driver }} --engine-opt dns=127.0.0.1 --engine-opt dns={{ external_dns_first }} --engine-opt dns={{ external_dns_second }}"
     with_items:
       - "docksul01"
       - "docksul02"
       - "docksul03"
     when: docker_driver == "virtualbox"
+    tags: [consul, registrator, swarm]
 
   - shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ docker_driver }}"
     with_items:
@@ -40,17 +44,32 @@
       - "docksul02"
       - "docksul03"
     when: docker_driver == "aws"
+    tags: [consul, registrator, swarm]
 
 
   - shell: "docker-machine ip docksul01"
     register: dockerip_docksul01
+    tags: [consul, registrator, swarm]
+
   - shell: "docker-machine ip docksul02"
     register: dockerip_docksul02
+    tags: [consul, registrator, swarm]
+
   - shell: "docker-machine ip docksul03"
     register: dockerip_docksul03
+    tags: [consul, registrator, swarm]
 
   - name: eval docker-machine env for docksul01
     shell: "eval $(docker-machine env docksul01)"
+    tags: [consul, registrator, swarm]
+
+  - name: eval docker-machine env for docksul02
+    shell: "eval $(docker-machine env docksul02)"
+    tags: [consul, registrator, swarm]
+
+  - name: eval docker-machine env for docksul03
+    shell: "eval $(docker-machine env docksul03)"
+    tags: [consul, registrator, swarm]
 
   - set_fact:
       # must make this dynamic !!!
@@ -59,9 +78,11 @@
       dockerip_docksul01: "{{ dockerip_docksul01.stdout_lines[0] }}"
       dockerip_docksul02: "{{ dockerip_docksul02.stdout_lines[0] }}"
       dockerip_docksul03: "{{ dockerip_docksul03.stdout_lines[0] }}"
+      tags: [consul, registrator, swarm]
 
   - name: Display all variables/facts known for consul-master
     debug: var=hostvars[inventory_hostname]
+    tags: [consul, registrator, swarm]
 
   - name: Create consul01 on docksul01
     docker:
@@ -71,6 +92,7 @@
       state: started
       use_tls: encrypt
       memory_limit: "256MB"
+#      registry: TBD...
       docker_url: "tcp://{{ dockerip_docksul01 }}:{{ docker_port }}"
       ports:
         - "{{ dockerip_docksul01 }}:8300:8300"
@@ -82,15 +104,15 @@
         - "{{ dockerip_docksul01 }}:{{ consul_port }}:{{ consul_port }}"
         - "{{ dockerip_docksul01 }}:53:53"
         - "{{ dockerip_docksul01 }}:53:53/udp"
-      volumes: /mnt:/data
-#      restart_policy: always
-      domainname: "(( domain_name }"
+#      volumes: /mnt:/data
+      restart_policy: always
       dns:
         - "{{ dockerip_docksul01 }}"
-        - "8.8.8.8"
-        - "8.8.4.4"
-#      command: -server -dns {{ dockerip_docksul01 }} -dns 8.8.8.8 -dns 8.8.4.4 -advertise {{ dockerip_docksul01 }} -bootstrap-expect 3
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+#      command: -server -dns {{ dockerip_docksul01 }} -advertise {{ dockerip_docksul01 }} -bootstrap-expect 3
       command: -server -advertise {{ dockerip_docksul01 }} -bootstrap-expect 3
+    tags: [consul]
 
     # create secondaty consul on docksul02
 #  - name: eval docker-machine env for docksul02
@@ -114,14 +136,14 @@
         - "{{ dockerip_docksul02 }}:{{ consul_port }}:{{ consul_port }}"
         - "{{ dockerip_docksul02 }}:53:53"
         - "{{ dockerip_docksul02 }}:53:53/udp"
-      volumes: /mnt:/data
+#      volumes: /mnt:/data
       restart_policy: always
-      domainname: "(( domain_name }"
       dns:
         - "{{ dockerip_docksul02 }}"
-        - "8.8.8.8"
-        - "8.8.4.4"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
       command: -server -advertise {{ dockerip_docksul02 }} -bootstrap-expect 3 -join {{ consul_master_ip }}
+    tags: [consul]
 
   - name: Create consul03 on docksul03
     docker:
@@ -142,28 +164,22 @@
         - "{{ dockerip_docksul03 }}:{{ consul_port }}:{{ consul_port }}"
         - "{{ dockerip_docksul03 }}:53:53"
         - "{{ dockerip_docksul03 }}:53:53/udp"
-      volumes: /mnt:/data
+#      volumes: /mnt:/data
       restart_policy: always
-      domainname: "(( domain_name }"
       dns:
         - "{{ dockerip_docksul03 }}"
-        - "8.8.8.8"
-        - "8.8.4.4"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
       command: -server -advertise {{ dockerip_docksul03 }} -bootstrap-expect 3 -join {{ consul_master_ip }}
-
+    tags: [consul]
 
   - name: eval docker-machine env for docksul01
     shell: "eval $(docker-machine env docksul01)"
 
-#  - name: gen cluster token
-#    shell: docker run swarm create
-#    register: swarm_token
-#  - debug: var=swarm_token.stdout_lines[0]
-
   - name: launch registrator container on docksoul01
     docker:
-      name: registrator
-      hostname: registrator
+      name: registrator01
+      hostname: registrator01
       image: gliderlabs/registrator:{{ registrator_tag }}
       state: started
       use_tls: encrypt
@@ -171,17 +187,17 @@
       docker_url: "tcp://{{ dockerip_docksul01 }}:{{ docker_port }}"
       volumes: /var/run/docker.sock:/tmp/docker.sock
       restart_policy: always
-      domainname: "(( domain_name }"
       dns:
         - "{{ dockerip_docksul03 }}"
-        - "8.8.8.8"
-        - "8.8.4.4"
-      command: consul://{{ dockerip_docksul01 }}:{{ consul_port }} -dns {{ dockerip_docksul01 }} -dns 8.8.8.8 -dns 8.8.4.4
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+      command: consul://{{ dockerip_docksul01 }}:{{ consul_port }} -dns {{ dockerip_docksul01 }}
+    tags: [registrator]
 
   - name: launch registrator container on docksoul02
     docker:
-      name: registrator
-      hostname: registrator
+      name: registrator02
+      hostname: registrator02
       image: gliderlabs/registrator:{{ registrator_tag }}
       state: started
       use_tls: encrypt
@@ -189,17 +205,17 @@
       docker_url: "tcp://{{ dockerip_docksul02 }}:{{ docker_port }}"
       volumes: /var/run/docker.sock:/tmp/docker.sock
       restart_policy: always
-      domainname: "(( domain_name }"
       dns:
         - "{{ dockerip_docksul03 }}"
-        - "8.8.8.8"
-        - "8.8.4.4"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
       command: consul://{{ dockerip_docksul02 }}:{{ consul_port }} -dns {{ dockerip_docksul02 }}
+    tags: [registrator]
 
   - name: launch registrator container on docksoul03
     docker:
-      name: registrator
-      hostname: registrator
+      name: registrator03
+      hostname: registrator03
       image: gliderlabs/registrator:{{ registrator_tag }}
       state: started
       use_tls: encrypt
@@ -207,86 +223,106 @@
       docker_url: "tcp://{{ dockerip_docksul03 }}:{{ docker_port }}"
       volumes: /var/run/docker.sock:/tmp/docker.sock
       restart_policy: always
-      domainname: "(( domain_name }"
       dns:
         - "{{ dockerip_docksul03 }}"
-        - "8.8.8.8"
-        - "8.8.4.4"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
       command: consul://{{ dockerip_docksul03 }}:{{ consul_port }} -dns {{ dockerip_docksul03 }}
+    tags: [registrator]
 
-  - docker:
-      name: swarm01
-      hostname: swarm01
-      image: swarm:latest
+
+  - name: eval docker-machine env for docksul01
+    shell: "eval $(docker-machine env docksul01)"
+    tags: [consul, registrator, swarm]
+
+  - name: Launch swarm 01
+    docker:
+      name: swarm
+      hostname: swarm
+      image: swarm
       state: started
       use_tls: encrypt
 #      memory_limit: "128M"
-      dns: "{{ dockerip_docksul01 }}"
       docker_url: "tcp://{{ dockerip_docksul01 }}:{{ docker_port }}"
-      command: consul://{{ consul_master_ip }}:{{ consul_port }}/{{ datacenter_name }} -
+      restart_policy: always
+#      command: join --advertise={{ dockerip_docksul01 }}:2375 consul://{{ consul_master_ip }}:{{ consul_port }}/swarm
+      command: join --addr={{ dockerip_docksul01 }}:{{ swarm_port }} consul://{{ consul_master_ip }}:{{ consul_port }}/swarm
       dns:
         - "{{ dockerip_docksul01 }}"
-        - "8.8.8.8"
-        - "8.8.4.4"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+#      ports:
+#        - "0.0.0.0:2375:2375"
+    tags: [swarm]
 
-#  - name: start swarm01
-#    docker:
-#      name: swarm01
-#      hostname: swarm01
-#      dns: "{{ docker_bridge_ip }}"
-#      domainname: service.consul
-#      image: swarm:latest
-#      state: started
-#      use_tls: encrypt
-##      memory_limit: "128M"
-#      ports: "2375:2375"
-#      docker_url: "tcp://{{ dockerip_docksul01 }}:{{ docker_port }}"
-#      command: swarm manage consul://{{ consul_master_ip }}:{{ consul_port }}/{{ datacenter_name }} --advertise={{ dockerip_docksul01 }}:{{ docker_port }}
-#
-#  - name: start swarm02
-#    docker:
-#      name: swarm02
-#      hostname: swarm02
-#      dns: "{{ docker_bridge_ip }}"
-#      domainname: service.consul
-#      image: swarm:latest
-#      state: started
-#      use_tls: encrypt
-##      dns: "{{ consul_master_ip }}"
-##      memory_limit: "128M"
-#      docker_url: "tcp://{{ dockerip_docksul02 }}:{{ docker_port }}"
-#      command: consul://{{ consul_master_ip }}:{{ consul_port }}/{{ datacenter_name }} --advertise={{ dockerip_docksul02 }}:{{ docker_port }}
-#
-#  - docker:
-#      name: swarm03
-#      hostname: swarm03
-#      dns: "{{ consul_master_ip }}"
-#      domainname: service.consul
-#      image: swarm:latest
-#      state: started
-#      use_tls: encrypt
-##      dns: "{{ consul_master_ip }}"
-##      memory_limit: "128M"
-#      docker_url: "tcp://{{ dockerip_docksul03 }}:{{ docker_port }}"
-#      command: consul://{{ consul_master_ip }}:{{ consul_port }}/{{ datacenter_name }} --advertise={{ dockerip_docksul03 }}:{{ docker_port }}
-#  - name: Display docker_bridge_ip
-#    debug: var=docker_bridge_ip
-#
-#  - docker:
-#      name: jenkins
-#      hostname: jenkins
-#      domainname: service.consul
-#      image: jenkins:latest
-#      state: started
-#      use_tls: encrypt
-#      memory_limit: "256MB"
-#      dns: "{{ docker_bridge_ip }}"
-#      ports: "8080:8080"
-##      command: --dns "{{ docker_bridge_ip }}"
-#      docker_url: "tcp://{{ dockerip_docksul02 }}:{{ docker_port }}"
-#      command: consul://{{ consul_master_ip }}:{{ consul_port }}/{{ datacenter_name }}
+  - name: Launch swarm 02
+    docker:
+      name: swarm
+      hostname: swarm
+      image: swarm
+      state: started
+      use_tls: encrypt
+#      memory_limit: "128M"
+      docker_url: "tcp://{{ dockerip_docksul02 }}:{{ docker_port }}"
+      restart_policy: always
+#      command: join --advertise={{ dockerip_docksul02 }}:2375 consul://{{ consul_master_ip }}:{{ consul_port }}/swarm
+      command: join --addr={{ dockerip_docksul02 }}:{{ swarm_port }} consul://{{ consul_master_ip }}:{{ consul_port }}/swarm
+      dns:
+        - "{{ dockerip_docksul02 }}"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+#      ports:
+#        - "0.0.0.0:2375:2375"
+    tags: [swarm]
 
 
+  - name: Launch swarm 03
+    docker:
+      name: swarm
+      hostname: swarm
+      image: swarm
+      state: started
+      use_tls: encrypt
+#      memory_limit: "128M"
+      docker_url: "tcp://{{ dockerip_docksul03 }}:{{ docker_port }}"
+      restart_policy: always
+#      command: join --advertise={{ dockerip_docksul03 }}:2375 consul://{{ consul_master_ip }}:{{ consul_port }}/swarm
+      command: join --addr={{ dockerip_docksul03 }}:{{ swarm_port }} consul://{{ consul_master_ip }}:{{ consul_port }}/swarm
+      dns:
+        - "{{ dockerip_docksul03 }}"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+#      ports:
+#        - "{{ dockerip_docksul03 }}:2375:2375"
+    tags: [swarm]
+
+
+  - name: Launch swarm manager on docksul03
+    docker:
+      name: swarm-manage
+      hostname: swarm-manage
+      image: swarm
+      state: started
+      use_tls: encrypt
+#      memory_limit: "128M"
+      docker_url: "tcp://{{ dockerip_docksul03 }}:{{ docker_port }}"
+      command: manage consul://{{ consul_master_ip }}:{{ consul_port }}/swarm
+      dns:
+        - "{{ dockerip_docksul03 }}"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+      ports:
+        - "0.0.0.0:2375:2375"
+    tags: [swarm]
+
+
+#  - set_fact:
+#      swarm_port: '2375'
+#
+#  - name: eval docker-machine env for docksul03
+#    shell: "eval $(docker-machine env docksul03)"
+#    tags: [consul, registrator, swarm]
+#
 #  - docker:
 #      name: dnsutils
 #      hostname: dnsutils
@@ -294,4 +330,7 @@
 #      state: started
 #      use_tls: encrypt
 #      memory_limit: "64MB"
-#      docker_url: "tcp://{{ dockerip_docksul02 }}:{{ docker_port }}"
+#      docker_url: "tcp://{{ dockerip_docksul03 }}:{{ swarm_port }}"
+
+
+
