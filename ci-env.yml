@@ -1,0 +1,69 @@
+# vim:ft=ansible:
+- name: create machine
+  hosts: localhost
+  gather_facts: no
+  tags: create
+
+
+  vars:
+    docker_port: '2376'
+    ddriver: 'virtualbox'
+
+  tasks:
+
+  - debug: var=ddriver
+  - shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ ddriver }}"
+    with_items:
+      - "cidev"
+    when: ddriver == 'virtualbox'
+
+  - debug: var=ddriver
+  - shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ ddriver }}"
+    with_items:
+      - "ciprod"
+    when: ddriver == 'aws'
+
+  - debug: var=ddriver
+
+  - name: register ciip
+    shell: "docker-machine ip cidev"
+    when: ddriver == 'virtualbox
+    register: ciip
+    tags: jenkins
+
+  - shell: "docker-machine ip ciprod"
+    register: ciip
+    when: ddriver == 'aws'
+    tags: jenkins
+
+  - debug: var=ciip
+
+#  - name: get cert
+#    shell: "docker-machine env cidev | grep DOCKER_CERT_PATH | awk -F '="' '{print $2}'"
+#    register: docker_cert
+
+#  - debug: var=docker_cert
+
+  - set_fact:
+      ci_addr: "{{ ciip.stdout_lines[0] }}"
+    tags: jenkins
+
+#  - name: "Validate this is wokring with no Jenkins launched ..."
+#    shell: 'docker-machine scp ${DOCKER_CERT_PATH}/cert.pem cidev:/mnt/jenkins_home/cert.pem'
+
+  - name: Launch Jenkins-ci server on port 8080
+    docker:
+      name: jenkins
+      hostname: jenkins
+      domainname: service.consul
+      image: jenkins:latest
+      state: started
+      use_tls: encrypt
+      memory_limit: "512MB"
+      ports: "8080:8080"
+      docker_url: "tcp://{{ ci_addr }}:{{ docker_port }}"
+      volumes: /mnt/jenkins_home:/var/jenkins_home
+      dns:
+        - "8.8.8.8"
+        - "8.8.4.4"
+    tags: jenkins
