@@ -1,0 +1,222 @@
+# vim:ft=ansible:
+- name: create machine
+  hosts: localhost
+  gather_facts: no
+  tags:
+      - consul
+      - registrator
+      - swarm
+
+  vars:
+    domain_name: 'service.consul'
+    registrator_tag: 'latest'
+    swarm_port: '2375'
+    docker_port: '2376'
+    consul_port: '8500'
+    datacenter_name: 'dc1'
+    docker_driver: virtualbox
+    external_dns_first: '8.8.8.8'
+    external_dns_second: '8.8.4.4'
+    consul_virtualbox_memory: '512'
+    as_virtualbox_memory: '2048'
+    insecure_registry: '52.35.21.153:5000'
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  tasks:
+#  - docker_machine: name="{{ item }}" state=present driver=virtualbox
+#    with_items:
+#      - "docksul01"
+#      - "docksul02"
+#      - "docksul03"
+
+#  - include: tasks/dev.yml
+#    when: env == "dev"
+#
+#  - include: tasks/prod.yml
+#    when: env == "prod"
+
+  - name: Create consul cluster (docksul01-03)
+    shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ docker_driver }} --engine-opt dns=127.0.0.1 --engine-opt dns={{ external_dns_first }} --engine-opt dns={{ external_dns_second }} --virtualbox-memory \"{{ consul_virtualbox_memory }}\""
+    with_items:
+      - "docksul01"
+      - "docksul02"
+      - "docksul03"
+    when: docker_driver == "virtualbox"
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ docker_driver }}"
+    with_items:
+      - "docksul01"
+      - "docksul02"
+      - "docksul03"
+    when: docker_driver == "aws"
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - shell: "docker-machine ip docksul01"
+    register: dockerip_docksul01
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - shell: "docker-machine ip docksul02"
+    register: dockerip_docksul02
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - shell: "docker-machine ip docksul03"
+    register: dockerip_docksul03
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - name: eval docker-machine env for docksul01
+    shell: "eval $(docker-machine env docksul01)"
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - name: eval docker-machine env for docksul02
+    shell: "eval $(docker-machine env docksul02)"
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - name: eval docker-machine env for docksul03
+    shell: "eval $(docker-machine env docksul03)"
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - set_fact:
+      # must make this dynamic !!!
+#      docker_bridge_ip: '172.17.0.1'
+      consul_master_ip: "{{ dockerip_docksul01.stdout_lines[0] }}"
+      dockerip_docksul01: "{{ dockerip_docksul01.stdout_lines[0] }}"
+      dockerip_docksul02: "{{ dockerip_docksul02.stdout_lines[0] }}"
+      dockerip_docksul03: "{{ dockerip_docksul03.stdout_lines[0] }}"
+      tags:
+        - consul
+        - registrator
+        - swarm
+
+  - name: Display all variables/facts known for consul-master
+    debug: var=hostvars[inventory_hostname]
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - name: eval docker-machine env for docksul01
+    shell: "eval $(docker-machine env docksul01)"
+    tags:
+      - consul
+      - registrator
+      - swarm
+
+  - name: Create consul01 on docksul01
+    docker:
+      name: consul
+      hostname: consul01
+      image: progrium/consul
+      state: started
+      use_tls: encrypt
+      memory_limit: "128MB"
+#      registry: TBD...
+      docker_url: "tcp://{{ dockerip_docksul01 }}:{{ docker_port }}"
+      ports:
+        - "{{ dockerip_docksul01 }}:8300:8300"
+        - "{{ dockerip_docksul01 }}:8301:8301"
+        - "{{ dockerip_docksul01 }}:8301:8301/udp"
+        - "{{ dockerip_docksul01 }}:8302:8302"
+        - "{{ dockerip_docksul01 }}:8302:8302/udp"
+        - "{{ dockerip_docksul01 }}:8400:8400"
+        - "{{ dockerip_docksul01 }}:{{ consul_port }}:{{ consul_port }}"
+        - "{{ dockerip_docksul01 }}:53:53"
+        - "{{ dockerip_docksul01 }}:53:53/udp"
+#      volumes: /mnt:/data
+      restart_policy: always
+      dns:
+        - "{{ dockerip_docksul01 }}"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+#      command: -server -dns {{ dockerip_docksul01 }} -advertise {{ dockerip_docksul01 }} -bootstrap-expect 3
+      command: -server -advertise {{ dockerip_docksul01 }} -bootstrap-expect 3
+    tags:
+      - consul
+
+  - name: Create consul02 on docksul02
+    docker:
+      name: consul
+      hostname: consul02
+      image: progrium/consul
+      state: started
+      use_tls: encrypt
+      memory_limit: "128MB"
+      docker_url: "tcp://{{ dockerip_docksul02 }}:{{ docker_port }}"
+      ports:
+        - "{{ dockerip_docksul02 }}:8300:8300"
+        - "{{ dockerip_docksul02 }}:8301:8301"
+        - "{{ dockerip_docksul02 }}:8301:8301/udp"
+        - "{{ dockerip_docksul02 }}:8302:8302"
+        - "{{ dockerip_docksul02 }}:8302:8302/udp"
+        - "{{ dockerip_docksul02 }}:8400:8400"
+        - "{{ dockerip_docksul02 }}:{{ consul_port }}:{{ consul_port }}"
+        - "{{ dockerip_docksul02 }}:53:53"
+        - "{{ dockerip_docksul02 }}:53:53/udp"
+#      volumes: /mnt:/data
+      restart_policy: always
+      dns:
+        - "{{ dockerip_docksul02 }}"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+      command: -server -advertise {{ dockerip_docksul02 }} -bootstrap-expect 3 -join {{ consul_master_ip }}
+    tags:
+      - consul
+
+  - name: Create consul03 on docksul03
+    docker:
+      name: consul
+      hostname: consul03
+      image: progrium/consul
+      state: started
+      use_tls: encrypt
+      memory_limit: "128MB"
+      docker_url: "tcp://{{ dockerip_docksul03 }}:{{ docker_port }}"
+      ports:
+        - "{{ dockerip_docksul03 }}:8300:8300"
+        - "{{ dockerip_docksul03 }}:8301:8301"
+        - "{{ dockerip_docksul03 }}:8301:8301/udp"
+        - "{{ dockerip_docksul03 }}:8302:8302"
+        - "{{ dockerip_docksul03 }}:8302:8302/udp"
+        - "{{ dockerip_docksul03 }}:8400:8400"
+        - "{{ dockerip_docksul03 }}:{{ consul_port }}:{{ consul_port }}"
+        - "{{ dockerip_docksul03 }}:53:53"
+        - "{{ dockerip_docksul03 }}:53:53/udp"
+#      volumes: /mnt:/data
+      restart_policy: always
+      dns:
+        - "{{ dockerip_docksul03 }}"
+        - "{{ external_dns_first }}"
+        - "{{ external_dns_second }}"
+      command: -server -advertise {{ dockerip_docksul03 }} -bootstrap-expect 3 -join {{ consul_master_ip }}
+    tags:
+      - consul
+
+  - name: Dump all vars
+    action: template src=templates/dumpall.j2 dest=/tmp/ansible.all

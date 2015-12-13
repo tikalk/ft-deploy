@@ -4,20 +4,21 @@
   gather_facts: no
   tags: create
 
-
   vars:
     docker_port: '2376'
-    ddriver: 'virtualbox'
+    ddriver: virtualbox
 
   tasks:
 
   - debug: var=ddriver
+
   - shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ ddriver }}"
     with_items:
       - "cidev"
     when: ddriver == 'virtualbox'
 
   - debug: var=ddriver
+
   - shell: "docker-machine ls | grep {{ item }} || docker-machine create {{ item }} --driver {{ ddriver }}"
     with_items:
       - "ciprod"
@@ -27,25 +28,29 @@
 
   - name: register ciip
     shell: "docker-machine ip cidev"
-    when: ddriver == 'virtualbox
     register: ciip
-    tags: jenkins
+    when: ddriver == 'virtualbox'
+#    tags: jenkins
+  - debug: msg="{{ ciip }}"
+  - debug: msg="{{ ciip.stdout_lines[0] }}"
+
 
   - shell: "docker-machine ip ciprod"
-    register: ciip
     when: ddriver == 'aws'
+    register: ciip
     tags: jenkins
 
-  - debug: var=ciip
+  - debug: msg="{{ ciip }}"
+  - debug: msg="{{ ciip.stdout_lines[0] }}"
 
 #  - name: get cert
 #    shell: "docker-machine env cidev | grep DOCKER_CERT_PATH | awk -F '="' '{print $2}'"
 #    register: docker_cert
 
 #  - debug: var=docker_cert
-
-  - set_fact:
-      ci_addr: "{{ ciip.stdout_lines[0] }}"
+  - name: set fact ciaddr
+    set_fact:
+      ciaddr: "{{ ciip.stdout_lines[0] }}"
     tags: jenkins
 
 #  - name: "Validate this is wokring with no Jenkins launched ..."
@@ -61,9 +66,10 @@
       use_tls: encrypt
       memory_limit: "512MB"
       ports: "8080:8080"
-      docker_url: "tcp://{{ ci_addr }}:{{ docker_port }}"
+      docker_url: "tcp://{{ ciaddr }}:{{ docker_port }}"
       volumes: /mnt/jenkins_home:/var/jenkins_home
       dns:
         - "8.8.8.8"
         - "8.8.4.4"
     tags: jenkins
+
